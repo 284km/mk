@@ -34,6 +34,6 @@ mere -c main.mere > m.c && clang -O2 m.c -o mk
 
 - [x] M0: run one command, propagate exit code (`run`)
 - [x] M2: `mkfile` with `name: command`, run a named task
-- [ ] M3: task dependencies (`deps`), topological order
+- [x] M3: task dependencies (`name [deps]: cmd`), topological order
 - [ ] M4: incremental (skip if output newer than inputs; `file_mtime` exists)
 - [ ] M5: parallel independent tasks (`spawn` / `channel`)

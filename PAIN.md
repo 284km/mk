@@ -48,3 +48,15 @@ gaps: a builtin present in the interpreter (and documented as 3-backend)
 that the C backend never got.
 
 **Fixed upstream (mere v0.1.14):** added the `print_err` case to the C backend (`fprintf(stderr, "%s\n", ...)`, mirroring `print` -> `puts`). Native `mk` now builds and writes task errors to stderr.
+
+## (M3) 🟢 positive: task deps + topological run hit no language friction
+
+M3 added task dependencies (`name [dep1 dep2]: command`) with depth-first
+topological execution, run-once dedup (a `done` name list), and
+short-circuit on the first nonzero exit. It was written in Mere with **no
+friction**: a `Task` record, mutual recursion (`run_task` / `run_deps`),
+tuple-returning `(exit_code, done_list)` threading, and `list_member` /
+`list_filter` / `str_split` all just worked, interp and native identical.
+Like mstat's stream redesign and mere-notes' CRDT, graph/recursion code is
+where Mere is comfortable — the pains were the *edges* (the missing
+`run` subprocess builtin P1, `print_err` on C P2), not the core.

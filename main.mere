@@ -1,29 +1,76 @@
 // mk — a tiny task runner written in Mere.
-//   mkfile:  lines of  "name: shell command"
-//   usage:   mk <task>   → runs that task's command, propagates its exit code
-// Exercises the v0.1.13 `run` builtin plus args / read_file / str ops / exit.
+//   mkfile:  "name: command"            a task
+//            "name [dep1 dep2]: command" a task that runs deps first
+//   usage:   mk <task>   → runs deps (topological), then the task; propagates
+//                          the first nonzero exit code.
+
+type Task = { name: str, deps: str list, cmd: str };
 
 let taskname =
   match args () with
   | Cons (t, _) -> t
   | Nil -> ""
 in
-let src = read_file "mkfile" in
-let lines = str_split src "\n" in
-let rec find = fn (ls: str list) ->
-  match ls with
-  | Nil -> None
-  | Cons (line, rest) ->
-    let i = str_index_of line ":" in
-    if i < 0 then find rest
+
+// --- parse one mkfile line into a Task option ---
+let parse_line = fn (line: str) ->
+  let ci = str_index_of line ":" in
+  if ci < 0 then None
+  else
+    let head = str_trim (substring line 0 ci) in
+    let cmd = str_trim (substring line (ci + 1) (str_len line)) in
+    let bi = str_index_of head "[" in
+    if bi < 0 then
+      Some (Task { name = head, deps = Nil, cmd = cmd })
     else
-      let name = str_trim (substring line 0 i) in
-      if str_eq name taskname
-      then Some (str_trim (substring line (i + 1) (str_len line)))
-      else find rest
+      let name = str_trim (substring head 0 bi) in
+      let ei = str_index_of head "]" in
+      let inside = substring head (bi + 1) ei in
+      let deps = list_filter (str_split (str_trim inside) " ")
+                             (fn (s: str) -> not (str_eq s "")) in
+      Some (Task { name = name, deps = deps, cmd = cmd })
 in
-match find lines with
-| Some cmd -> exit (run cmd)
-| None ->
-  let _ = print_err ("mk: no such task: " ++ taskname) in
-  exit 1
+
+let rec parse_all = fn (ls: str list) ->
+  match ls with
+  | Nil -> Nil
+  | Cons (l, rest) ->
+    (match parse_line l with
+     | Some t -> Cons (t, parse_all rest)
+     | None -> parse_all rest)
+in
+
+let tasks = parse_all (str_split (read_file "mkfile") "\n") in
+
+let rec lookup = fn (ts: Task list) -> fn (n: str) ->
+  match ts with
+  | Nil -> None
+  | Cons (t, rest) -> if str_eq t.name n then Some t else lookup rest n
+in
+
+// --- run a task and its deps, depth-first, tracking done names ---
+// returns (exit_code, done_list). stops at first nonzero exit.
+let rec run_task = fn (n: str) -> fn (done: str list) ->
+  if list_member done n then (0, done)
+  else
+    match lookup tasks n with
+    | None ->
+      let _ = print_err ("mk: no such task: " ++ n) in (1, done)
+    | Some t ->
+      let dr = run_deps t.deps done in
+      let (dcode, done2) = dr in
+      if dcode != 0 then (dcode, done2)
+      else
+        let code = run t.cmd in
+        (code, Cons (n, done2))
+and run_deps = fn (ds: str list) -> fn (done: str list) ->
+  match ds with
+  | Nil -> (0, done)
+  | Cons (d, rest) ->
+    let (c, done2) = run_task d done in
+    if c != 0 then (c, done2) else run_deps rest done2
+in
+
+let result = run_task taskname Nil in
+let (code, _) = result in
+exit code
