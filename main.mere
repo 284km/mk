@@ -1,0 +1,5 @@
+// mk — a task runner written in Mere. M0: run one external command and
+// propagate its exit code. The first thing a build tool must do — and the
+// first thing Mere cannot yet express.
+let code = run "echo hello from mk" in
+print (show code)
