@@ -14,6 +14,12 @@ clean: rm -f app
 
 $ mk build      # runs "clang -O2 main.c -o app", exits with its code
 $ mk nope       # → stderr: "mk: no such task: nope", exit 1
+
+A dep group in brackets runs sequentially; add `&` to run it in parallel:
+
+```
+fast [lint unit e2e]&: echo all checks passed
+```
 ```
 
 ## Why this exists
@@ -36,4 +42,4 @@ mere -c main.mere > m.c && clang -O2 m.c -o mk
 - [x] M2: `mkfile` with `name: command`, run a named task
 - [x] M3: task dependencies (`name [deps]: cmd`), topological order
 - [x] M4: incremental (`name (out: in1 in2): cmd` — skip if `out` newer than inputs)
-- [ ] M5: parallel independent tasks (`spawn` / `channel`)
+- [x] M5: parallel dep groups (`name [a b c]&: cmd` via `par_map`; deps must be independent)

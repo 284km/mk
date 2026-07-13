@@ -78,3 +78,48 @@ present in the interpreter (and needed to guard the native-present
 `file_mtime`) that the C backend never got.
 
 **Fixed upstream (mere v0.1.15):** added the `file_exists` case to the C backend (`stat(path, &st) == 0`, next to `__lang_file_mtime`). Native `mk` incremental builds now work; the float mtime comparison rides the v0.1.11 structural `>`.
+
+## P4 🟢 Parallel `run`s serialized — macOS `system()` global lock (fixed upstream, mere v0.1.16)
+
+M5 (parallel dependency groups) is the payoff of a parallel task runner:
+`par [a b c]&:` should overlap its deps. It didn't — three parallel 0.3s
+sleeps took ~1.0s (interp) / ~1.6s (native), i.e. fully serialized, even
+though `par_map` itself parallelizes pure compute (4× fib on 4 cores ran at
+368% CPU). The culprit: `run` lowered to libc `system()` (OCaml's
+`Sys.command` wraps it), and **macOS serializes concurrent `system()` calls
+behind a global lock**. A C probe confirmed it: 3 threads × `system("sleep
+0.3")` = 1.01s, the same via `posix_spawn` = 0.32s.
+
+**Fixed upstream (mere v0.1.16):** `run` no longer uses `system()` — the
+interpreter uses `Unix.create_process "/bin/sh" ["sh";"-c";cmd]` + waitpid,
+the C backend uses `posix_spawn` + `waitpid` (`128 + signal` on signaled
+exit). Three parallel 0.3s commands now take ~0.36s on both backends.
+
+## P5 🟢 C backend: spawn closure lost the captures of an inner-lifted callee (fixed upstream, mere v0.1.17)
+
+With P4 fixed, mk's parallel groups worked in the interpreter but the
+native build failed:
+
+```
+error: use of undeclared identifier 'done'
+```
+
+Minimal repro: an **inline lambda passed to `par_map` that captures an
+enclosing function's parameter**, inside a mutually-recursive `let rec`:
+
+```
+let rec worker = fn (x: int) -> fn (k: int) -> x + k
+and outer = fn (k: int) ->
+  suml (par_map (fn (x: int) -> worker x k) [1, 2, 3])
+in print (show (outer 100))       // interp: 306; native: error 'k'
+```
+
+The inline lambda gets inner-lifted with `k` (mk: `done`) injected as a
+leading argument at call sites. But the call site sits inside *another*
+closure — the `par_map` lowering's spawn lambda — whose env didn't include
+the injected variable. Same transitive-capture family as mq's P8.
+
+**Fixed upstream (mere v0.1.17):** the anonymous-closure capture
+computation unions in the captures of any inner-lifted fn the body calls.
+Native mk parallel groups now work: 3 × 0.3s deps ≈ 0.38s wall, and a
+failing parallel dep (`parboom [a boom]&`) propagates exit 9.
