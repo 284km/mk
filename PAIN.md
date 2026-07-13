@@ -7,7 +7,7 @@ Status legend: 🔴 open · 🟡 worked around · 🟢 fixed upstream
 
 ---
 
-## P1 🔴 No way to run an external program (subprocess)
+## P1 🟢 No way to run an external program (subprocess) (fixed upstream, mere v0.1.13)
 
 The whole point of a build tool is to invoke other programs (a compiler, a
 linter, `rm`, `git`). Mere had **no builtin to start a subprocess**: `run`
@@ -25,11 +25,12 @@ and `exit` (all added for the `mq` CLI dogfood), plus TCP / HTTP — but no
 process control. A whole class of tools (build systems, task runners, dev
 tooling, anything that shells out) was inexpressible.
 
-**Signal (M0, upstream):** add a `run : str -> int` builtin — run a command
+**Fixed upstream (mere v0.1.13):** added `run : str -> int` — run a command
 line via the shell, inherit stdio, return the exit code — to the
-interpreter and the C backend (native is the target, like mq). Later:
-`run_out : str -> (int * str)` to capture stdout (M1), and directory / stat
-builtins for incremental builds (M4).
+interpreter (`Sys.command`) and the C backend (`system` + `WEXITSTATUS`).
+Exit codes propagate identically on both. M0 works: `run "echo hi"` prints
+and returns 0; `run "exit 7"` returns 7. (A future `run_out : str -> (int *
+str)` could capture stdout — not needed yet.)
 
 ## P2 🟢 `print_err` missing in the C backend (fixed upstream, mere v0.1.14)
 
