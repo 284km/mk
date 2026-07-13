@@ -1,10 +1,13 @@
 // mk — a tiny task runner written in Mere.
-//   mkfile:  "name: command"            a task
-//            "name [dep1 dep2]: command" a task that runs deps first
-//   usage:   mk <task>   → runs deps (topological), then the task; propagates
-//                          the first nonzero exit code.
+//   mkfile lines:
+//     name: cmd                          a task (always runs)
+//     name [dep1 dep2]: cmd              run deps first (topological)
+//     name (out: in1 in2): cmd           incremental: skip if `out` exists
+//                                        and is newer than every input
+//     name [deps] (out: in1 in2): cmd    both
+//   usage: mk <task>  → runs it; propagates the first nonzero exit code.
 
-type Task = { name: str, deps: str list, cmd: str };
+type Task = { name: str, deps: str list, out: str, ins: str list, cmd: str };
 
 let taskname =
   match args () with
@@ -12,23 +15,57 @@ let taskname =
   | Nil -> ""
 in
 
-// --- parse one mkfile line into a Task option ---
+// extract text between the first `open` and `close` chars; "" if absent.
+let between = fn (s: str) -> fn (op: str) -> fn (cl: str) ->
+  let i = str_index_of s op in
+  if i < 0 then ""
+  else
+    let j = str_index_of s cl in
+    if j < 0 then "" else str_trim (substring s (i + 1) j)
+in
+let strip_between = fn (s: str) -> fn (op: str) -> fn (cl: str) ->
+  let i = str_index_of s op in
+  if i < 0 then s
+  else
+    let j = str_index_of s cl in
+    if j < 0 then s
+    else str_trim (substring s 0 i ++ substring s (j + 1) (str_len s))
+in
+let words = fn (s: str) ->
+  list_filter (str_split (str_trim s) " ") (fn (w: str) -> not (str_eq w ""))
+in
+
 let parse_line = fn (line: str) ->
   let ci = str_index_of line ":" in
   if ci < 0 then None
   else
-    let head = str_trim (substring line 0 ci) in
-    let cmd = str_trim (substring line (ci + 1) (str_len line)) in
-    let bi = str_index_of head "[" in
-    if bi < 0 then
-      Some (Task { name = head, deps = Nil, cmd = cmd })
-    else
-      let name = str_trim (substring head 0 bi) in
-      let ei = str_index_of head "]" in
-      let inside = substring head (bi + 1) ei in
-      let deps = list_filter (str_split (str_trim inside) " ")
-                             (fn (s: str) -> not (str_eq s "")) in
-      Some (Task { name = name, deps = deps, cmd = cmd })
+    // the command starts after the ':' that follows the ')' (when an
+    // `(out: ins)` clause is present, whose inner ':' must not be mistaken
+    // for the command separator), else after the first ':'.
+    let paren = str_index_of line "(" in
+    let col =
+      if paren >= 0 then
+        (let close = str_index_of line ")" in
+         let after = substring line close (str_len line) in
+         let rel = str_index_of after ":" in
+         close + rel)
+      else ci
+    in
+    let head = str_trim (substring line 0 col) in
+    let cmd = str_trim (substring line (col + 1) (str_len line)) in
+    let deps = words (between head "[" "]") in
+    let io = between head "(" ")" in
+    let h1 = strip_between (strip_between head "[" "]") "(" ")" in
+    let name = str_trim h1 in
+    let out =
+      let k = str_index_of io ":" in
+      if k < 0 then "" else str_trim (substring io 0 k)
+    in
+    let ins =
+      let k = str_index_of io ":" in
+      if k < 0 then Nil else words (substring io (k + 1) (str_len io))
+    in
+    Some (Task { name = name, deps = deps, out = out, ins = ins, cmd = cmd })
 in
 
 let rec parse_all = fn (ls: str list) ->
@@ -39,7 +76,6 @@ let rec parse_all = fn (ls: str list) ->
      | Some t -> Cons (t, parse_all rest)
      | None -> parse_all rest)
 in
-
 let tasks = parse_all (str_split (read_file "mkfile") "\n") in
 
 let rec lookup = fn (ts: Task list) -> fn (n: str) ->
@@ -48,18 +84,31 @@ let rec lookup = fn (ts: Task list) -> fn (n: str) ->
   | Cons (t, rest) -> if str_eq t.name n then Some t else lookup rest n
 in
 
-// --- run a task and its deps, depth-first, tracking done names ---
-// returns (exit_code, done_list). stops at first nonzero exit.
+// stale? out missing, or some input newer than out.
+let rec any_newer = fn (ins: str list) -> fn (ot: float) ->
+  match ins with
+  | Nil -> false
+  | Cons (i, rest) ->
+    if file_exists i then
+      (if file_mtime i > ot then true else any_newer rest ot)
+    else any_newer rest ot
+in
+let is_stale = fn (t: Task) ->
+  if str_eq t.out "" then true
+  else if not (file_exists t.out) then true
+  else any_newer t.ins (file_mtime t.out)
+in
+
 let rec run_task = fn (n: str) -> fn (done: str list) ->
   if list_member done n then (0, done)
   else
     match lookup tasks n with
-    | None ->
-      let _ = print_err ("mk: no such task: " ++ n) in (1, done)
+    | None -> let _ = print_err ("mk: no such task: " ++ n) in (1, done)
     | Some t ->
-      let dr = run_deps t.deps done in
-      let (dcode, done2) = dr in
+      let (dcode, done2) = run_deps t.deps done in
       if dcode != 0 then (dcode, done2)
+      else if not (is_stale t) then
+        let _ = print ("mk: up to date: " ++ n) in (0, Cons (n, done2))
       else
         let code = run t.cmd in
         (code, Cons (n, done2))
@@ -71,6 +120,5 @@ and run_deps = fn (ds: str list) -> fn (done: str list) ->
     if c != 0 then (c, done2) else run_deps rest done2
 in
 
-let result = run_task taskname Nil in
-let (code, _) = result in
+let (code, _) = run_task taskname Nil in
 exit code

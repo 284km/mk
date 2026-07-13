@@ -60,3 +60,21 @@ tuple-returning `(exit_code, done_list)` threading, and `list_member` /
 Like mstat's stream redesign and mere-notes' CRDT, graph/recursion code is
 where Mere is comfortable — the pains were the *edges* (the missing
 `run` subprocess builtin P1, `print_err` on C P2), not the core.
+
+## P3 🔴 `file_exists` missing in the C backend
+
+M4 (incremental builds) skips a task when its output exists and is newer
+than its inputs. Checking "exists" uses `file_exists`, and guards
+`file_mtime` (which raises on a missing path). `file_mtime` is on all
+backends, but `file_exists` is interpreter-only, so the native build fails:
+
+```
+error: use of undeclared identifier 'file_exists'
+```
+
+Same family as P2 (`print_err`) and mq's `str_eq`: a filesystem builtin
+present in the interpreter (and needed to guard the native-present
+`file_mtime`) that the C backend never got.
+
+**Signal (upstream):** add a `file_exists` case to the C backend →
+`stat(path, &st) == 0`, sitting next to the existing `__lang_file_mtime`.
