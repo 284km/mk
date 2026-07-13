@@ -61,7 +61,7 @@ Like mstat's stream redesign and mere-notes' CRDT, graph/recursion code is
 where Mere is comfortable — the pains were the *edges* (the missing
 `run` subprocess builtin P1, `print_err` on C P2), not the core.
 
-## P3 🔴 `file_exists` missing in the C backend
+## P3 🟢 `file_exists` missing in the C backend (fixed upstream, mere v0.1.15)
 
 M4 (incremental builds) skips a task when its output exists and is newer
 than its inputs. Checking "exists" uses `file_exists`, and guards
@@ -76,5 +76,4 @@ Same family as P2 (`print_err`) and mq's `str_eq`: a filesystem builtin
 present in the interpreter (and needed to guard the native-present
 `file_mtime`) that the C backend never got.
 
-**Signal (upstream):** add a `file_exists` case to the C backend →
-`stat(path, &st) == 0`, sitting next to the existing `__lang_file_mtime`.
+**Fixed upstream (mere v0.1.15):** added the `file_exists` case to the C backend (`stat(path, &st) == 0`, next to `__lang_file_mtime`). Native `mk` incremental builds now work; the float mtime comparison rides the v0.1.11 structural `>`.
