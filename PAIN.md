@@ -30,3 +30,22 @@ line via the shell, inherit stdio, return the exit code — to the
 interpreter and the C backend (native is the target, like mq). Later:
 `run_out : str -> (int * str)` to capture stdout (M1), and directory / stat
 builtins for incremental builds (M4).
+
+## P2 🔴 `print_err` missing in the C backend
+
+M2 (a taskfile runner) prints an error to stderr for an unknown task:
+`print_err ("mk: no such task: " ++ name)`. This works in the interpreter,
+but the native build fails to compile:
+
+```
+error: use of undeclared identifier 'print_err'
+```
+
+The C backend lowers `print` to `puts(...)` but has no `print_err` case, so
+a native CLI can't write to stderr — awkward for a tool that must separate
+diagnostics from output. Same family as mq's `str_eq` / `join` C-backend
+gaps: a builtin present in the interpreter (and documented as 3-backend)
+that the C backend never got.
+
+**Signal (upstream):** add a `print_err` case to the C backend →
+`fprintf(stderr, "%s\n", ...)`, mirroring `print` → `puts`.

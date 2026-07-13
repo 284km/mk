@@ -1,5 +1,29 @@
-// mk — a task runner written in Mere. M0: run one external command and
-// propagate its exit code. The first thing a build tool must do — and the
-// first thing Mere cannot yet express.
-let code = run "echo hello from mk" in
-print (show code)
+// mk — a tiny task runner written in Mere.
+//   mkfile:  lines of  "name: shell command"
+//   usage:   mk <task>   → runs that task's command, propagates its exit code
+// Exercises the v0.1.13 `run` builtin plus args / read_file / str ops / exit.
+
+let taskname =
+  match args () with
+  | Cons (t, _) -> t
+  | Nil -> ""
+in
+let src = read_file "mkfile" in
+let lines = str_split src "\n" in
+let rec find = fn (ls: str list) ->
+  match ls with
+  | Nil -> None
+  | Cons (line, rest) ->
+    let i = str_index_of line ":" in
+    if i < 0 then find rest
+    else
+      let name = str_trim (substring line 0 i) in
+      if str_eq name taskname
+      then Some (str_trim (substring line (i + 1) (str_len line)))
+      else find rest
+in
+match find lines with
+| Some cmd -> exit (run cmd)
+| None ->
+  let _ = print_err ("mk: no such task: " ++ taskname) in
+  exit 1
