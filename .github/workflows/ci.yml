@@ -1,0 +1,57 @@
+name: CI
+
+# WHY THIS EXISTS. This repository had no CI and no tests. merelang/mere's CI
+# checks that its `main` still COMPILES this code (test/downstream/REPOS), but
+# "does it build" and "does it still run the tasks in the right order, in
+# parallel when asked, and give back the code that came out" are different
+# questions.
+#
+# THE ORACLE IS NOT ANOTHER PROGRAM. `mkfile` is not a Makefile -- the recipe
+# is on the same line as the name, dependencies are `[a b c]`, parallel is `&`,
+# incremental is `(out: in)` -- so `make` cannot answer for it. What mk CAN be
+# held to is the effect it has: which files exist afterwards, in what order
+# things happened, and what exit code came back. Those are facts about the
+# world, produced by a real shell running real commands.
+
+on:
+  push:
+  pull_request:
+  # The compiler moves daily and this repository does not, so a weekly run
+  # catches the case where nothing here changed and it broke anyway.
+  schedule:
+    - cron: "0 3 * * 1"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # BUILT FROM main, NOT FROM THE LATEST RELEASE -- this repository is
+      # developed against the compiler as it is. The cost is that a break
+      # upstream reddens this repository too, which is the truth of the
+      # dependency; merelang/mere's downstream_check tells the two apart from
+      # the other side.
+      - name: Check out the Mere compiler
+        uses: actions/checkout@v5
+        with:
+          repository: merelang/mere
+          path: .mere-compiler
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.1"
+
+      - name: Build mere
+        run: |
+          cd .mere-compiler
+          opam install . --deps-only
+          opam exec -- dune build bin/mere.exe
+
+      # MEASURED before wiring it: 9 checks, a few seconds. Nothing to install
+      # -- the shell and the filesystem are what this gate asks.
+      - name: verify.sh — mk against the world it acts on
+        run: MERE="$GITHUB_WORKSPACE/.mere-compiler/_build/default/bin/mere.exe" CC=clang sh verify.sh
